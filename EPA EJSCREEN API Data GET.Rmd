@@ -1,0 +1,215 @@
+---
+title: "EPA EJSCREEN API"
+author: "Ben Millam"
+date: "November 19, 2019"
+output: html_document
+oustanding items: 
+
+ --- run_query <- as.data.frame(do.call(rbind, run_query)) makes list columns, need fix
+ --- also save results as one file so fromJSON will create dataframe, remove system time from filename
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(jsonlite)
+#library(purrr)
+library(httr)
+
+```
+
+To do:
+API:
++ make single api call more resilient
++ add function to save JSON to text
+- add code to collect multiple calls
+- add code to read in JSON
+
+
+```{r ejscreenapifunction}
+ejscreen_api_call <- function(params, endpoint) {
+  
+  maxtries <- 3
+  trynum <- 1
+  
+  response_status <- character()
+  expected_content <- logical()
+  
+  while (trynum < maxtries + 1) {
+    
+    response <- GET(url = endpoint, query = params)
+
+    response_status <- response$status_code
+    expected_content <- grepl("RAW_E_PM25", x = content(response, as="text")) #check that an expected JSON key is present, we'll handle error catching outside of the api call function
+    if (expected_content) {
+      break
+    } else {
+      error_message <- paste("Expected JSON key RAW_E_PM25 not found in response content of attempt",trynum,"of",maxtries,". Response code",response_status,"content:",content(response, as="text"))
+      cat(error_message)
+      Sys.sleep(1)
+      trynum <- trynum + 1
+    }
+  }
+  
+  results <- list(character(),logical(),character())
+  names(results) <- c("results","successflag","error_message")
+  
+  if (expected_content) {
+      results[['results']] <- content(response, as="text")
+      results[['successflag']] <- TRUE
+      results[['error_message']] <- NA
+      return(results)
+  } else {
+      results[['results']] <- NA
+      results[['successflag']] <- FALSE
+      results[['error_message']] <- error_message
+      return(results)
+    }
+}
+
+```
+
+```{r savetextfile}
+save_text_file <- function(charstring, filename) {
+  
+  filename <- paste0(filename, ".txt")
+  
+  current_encoding <- getOption("encoding")
+  options("encoding" = "UTF-8")
+  
+  if (file.exists(filename)) {
+    error_message <- paste("Overwrite error; this file already exists:", filename)
+    stop(error_message)
+  }
+  
+  write(charstring, file = filename)
+  
+  options("encoding" = current_encoding)
+}
+```
+
+error handling resource:
+http://mazamascience.com/WorkingWithData/?p=912
+
+```{r queryejscreenapi}
+prisons <- read_csv('hifld-prison_boundaries-geocoded-from-shapefiles-by-ucd-team.csv')
+
+#https://ejscreen.epa.gov/mapper/ejscreenRESTbroker.aspx?namestr=&geometry={"spatialReference":{"wkid":4326},"x":-90.43382492108161,"y":32.848323133090894}&distance=1&unit=9035&areatype=&areaid=&f=pjson
+
+#function for apply()
+query_api <- function(prison_row, savefiles = T, filename = character(), savetodirectory = character(), verbose = FALSE) {
+  
+  #I couldn't find any API good citizen guidelines/rate limits, we'll sleep for 1 second
+  Sys.sleep(1)
+  
+  #note
+  endpoint <- "https://ejscreen.epa.gov/mapper/ejscreenRESTbroker.aspx"
+
+  #endpoint <- "https://asdlkajsdflkjaskldjfas.com"
+  
+  lat <- as.character(prison_row["latitude"]) #apply is passing the row as a named vector, likely already character but just in case
+  long <- as.character(prison_row["longitude"])
+  
+  geo_query_string <- paste0('{"spatialReference":{"wkid":4326},"x":',long,',"y":',lat,'}') #reference: '{"spatialReference":{"wkid":4326},"x":-90.43382492108161,"y":32.848323133090894}'
+      
+  params <- list(
+    namestr = "",
+    distance = "1", #API appears to accept fractional distances too
+    areatype = "",
+    unit = "9036", #specifies units as kilometers, "9035" is miles
+    f = "json", #format
+    geometry = I(geo_query_string)#wrapping in I() to avoid character conversion eg ' ' into %20, this fixed a bug where API was returning error
+  )
+  
+  tryCatch( 
+    expr = {
+      
+      response <- ejscreen_api_call(params, endpoint)
+      
+      yes_save_to_subdirectory <- length(savetodirectory) != 0 #character() length == 0
+  
+      if (yes_save_to_subdirectory) {
+        if (dir.exists(savetodirectory)) {
+          setwd(savetodirectory)
+        } else {
+          dir.create(savetodirectory)
+          setwd(savetodirectory)
+        }
+      }
+      
+      datequeried <- Sys.Date()
+      filename <- paste0(prison_row["FACILITYID"],'-ejscreen-data-queried-',datequeried) #save_text_file will append '.txt'
+      
+      save_text_file(response[['results']], filename = filename)
+      
+      return(response) #list of 'results' char and 'successflag' logical
+      
+    },
+    warning = function(w) {
+      if (verbose) {
+        message(w)
+      }
+    },
+    error = function(e) {
+      if (verbose) {
+        message(e)
+      }
+      results <- list(character(),logical(),character())
+      names(results) <- c("results","successflag","error_message")
+      results[['results']] <- NA
+      results[['successflag']] <- FALSE
+      results[['error_message']] <- e
+      
+      return(results)
+    },
+    finally = {
+      #are we in subdirectory?
+      if (basename(getwd()) == savetodirectory) {
+        #move back up to our original working directory
+        setwd('..')
+      }
+    }
+  )
+}
+  
+
+#note that several API parameters like radius are hard coded in query_api()
+run_query <- apply(prisons[1:3,], MARGIN = 1, FUN = query_api, savefiles = T, savetodirectory = "testing", verbose = TRUE)
+
+run_query <- as.data.frame(do.call(rbind, run_query))
+
+#check for errors
+sum(!unlist(run_query$successflag)) #error count, unlist() because your df columns are list columns... need fix later
+1 - mean(unlist(run_query$successflag)) #error rate
+
+#for testing
+#query_api(prisons[1,], savefiles = T, savetodirectory = "testing", verbose = TRUE)
+
+
+```
+
+
+```{r ejscreenapifunction-test}
+response <- ejscreen_api_call(params)
+http_error(response)
+response_json <- content(response,as="text")
+#response_json <- jsonlite::flatten(response_json)
+View(response_json)
+```
+
+```{r ejscreenapifunction-test}
+########### Note on fromJSON, when passed an array of JSON will return data.frame, e.g. [ {}, {}, ...], but a single object {} will return a list
+response_list <- fromJSON(response_json, flatten = TRUE)
+response_df <- as.data.frame(rbind(response_list), stringsAsFactors = FALSE)
+#response_df <- as.data.frame(I(response_df))
+View(response_df)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
