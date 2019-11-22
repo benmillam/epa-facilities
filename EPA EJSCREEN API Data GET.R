@@ -36,8 +36,8 @@
 working_directory <- "C:/hack-ca-local/epa-facilities"
 prisons_file <- "hifld-prison_boundaries-geocoded-from-shapefiles-by-ucd-team.csv"
 
-radius = "1" #radius around coordinate point; API appears to accept fractional distances too
-unit = "9036" #specifies units as kilometers, "9035" for miles
+radius <- "1" #radius around coordinate point; API appears to accept fractional distances too
+unit <- "9036" #specifies units as kilometers, "9035" for miles
 endpoint <- "https://ejscreen.epa.gov/mapper/ejscreenRESTbroker.aspx"
 
 collect_all_records <- FALSE
@@ -47,7 +47,7 @@ overwrite <- FALSE #if FALSE will not overwrite existing files (throws error), T
 savesubdirectory <- "testing"
 extension <- ".txt" #I'm overengineering here! note: full filename is hardcoded based on HIFLD facility ID and date e.g. "10003650-ejscreen-data-queried-2019-11-22.txt"
 
-verbose = TRUE
+verbose <- TRUE
 
 ################################### - load-libraries
 library(httr)
