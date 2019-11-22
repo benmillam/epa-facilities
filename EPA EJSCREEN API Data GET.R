@@ -18,15 +18,36 @@
 ################################### - user-config:
 #   working_directory (chr)
 #   prisons_file (chr): Assumes 'hifld-prison_boundaries-geocoded-from-shapefiles-by-ucd-team.csv' produced by corresponding R script "HFILD Geocode Prisons for Lat Long.R"
-#   savetodirectory(chr): subdirectory to save text files to, can comment out if none desired
+#   
+#   radius (int): radius around coordinate point; API appears to accept fractional distances too
+#   unit (chr): "9036" specifies units as kilometers, "9035" for miles
+#   endpoint (chr): the endpoint URL
+#   
 #   collect_all_records(logical): if TRUE, will collect all supplied records in prisons_file, if FALSE, will only collect first 3 (for testing)
 #
-#   note that several API parameters like radius are hard coded in collect_results()
+#   savefiles(logical): TRUE #option to save text files, FALSE will query API and keep results in a data.frame without saving text files
+#   overwrite(logical): if TRUE will overwrite existing files (otherwise throws error), TRUE is useful for testing
+#   savesubdirectory(chr): savesubdirectory(of one level only) to save text files to, can comment out if none desired
+#   extension(chr): I'm overengineering here! note: full filename is hardcoded based on HIFLD facility ID and date e.g. "10003650-ejscreen-data-queried-2019-11-22.txt"
+# 
+#   verbose = TRUE
+#
 
 working_directory <- "C:/hack-ca-local/epa-facilities"
 prisons_file <- "hifld-prison_boundaries-geocoded-from-shapefiles-by-ucd-team.csv"
-savetodirectory <- "testing" # asdk;ljfasdk;llllllllllj NEED FILL THESE OUT, ALSO NEED ADD PRINT MESSAGES FOR STATUS LIKE ERROR REPORTING, ALSO ADD CONFIGS FOR OTHER API PARAMS!
-collect_all_records <- TRUE #
+
+radius = "1" #radius around coordinate point; API appears to accept fractional distances too
+unit = "9036" #specifies units as kilometers, "9035" for miles
+endpoint <- "https://ejscreen.epa.gov/mapper/ejscreenRESTbroker.aspx"
+
+collect_all_records <- FALSE
+
+savefiles <-  TRUE #option to save text files, FALSE will query API and keep results in a data.frame without saving text files
+overwrite <- FALSE #if FALSE will not overwrite existing files (throws error), TRUE is useful for testing
+savesubdirectory <- "testing"
+extension <- ".txt" #I'm overengineering here! note: full filename is hardcoded based on HIFLD facility ID and date e.g. "10003650-ejscreen-data-queried-2019-11-22.txt"
+
+verbose = TRUE
 
 ################################### - load-libraries
 library(httr)
@@ -91,7 +112,7 @@ ejscreen_api_call <- function(params, endpoint) {
 }
 
 ################################### - savetextfile
-save_text_file <- function(charstring, filename, extension = ".txt", overwrite = FALSE) {
+save_text_file <- function(charstring, filename, extension, overwrite) {
   # """
   # Saves a text file in UTF-8 encoding, prevents overwrite if desired.
   # 
@@ -137,27 +158,25 @@ enter_directory <- function(dirname) {
   # Returns:
   #   NULL
   # """
-  if (dir.exists(savetodirectory)) {
-    setwd(savetodirectory)
+  if (dir.exists(savesubdirectory)) {
+    setwd(savesubdirectory)
   } else {
-    dir.create(savetodirectory)
-    setwd(savetodirectory)
+    dir.create(savesubdirectory)
+    setwd(savesubdirectory)
   }
   
   return(NULL)
 }
 
 ################################### - collectresults
-collect_results <- function(prison_row, savefiles = T, subdirectory = character(), verbose = FALSE) {
+collect_results <- function(prison_row, radius, unit, savefiles, overwrite, extension, savesubdirectory, verbose, endpoint) {
   # """
   # A function for apply(), relying on helper functions above, it structures call parameters, queries api,
   # and saves individual JSON text file, for a single set of coordinates.
   #
   # Args:
   #   prison_row (chr vector): The data.frame row, passed as a named vector and coerced to character.
-  #   savefiles (logical): if TRUE will save text files; FALSE useful if just want results into memory.
-  #   subdirectory (chr): subdirectory for saving files, optional, if not specified will save to current working directory
-  #   verbose (logical): if TRUE, will print error messages to console.
+  #   see user config section at top for all others
   #
   # Returns:
   #   list(character(),logical(),character()), the results; returned from ejscreen_api_call(), see that function for details
@@ -167,7 +186,7 @@ collect_results <- function(prison_row, savefiles = T, subdirectory = character(
   Sys.sleep(1)
   
   #note
-  endpoint <- "https://ejscreen.epa.gov/mapper/ejscreenRESTbroker.aspx"
+  endpoint <- endpoint
   
   #endpoint <- "https://asdlkajsdflkjaskldjfas.com" #endpoint for testing
   
@@ -178,9 +197,9 @@ collect_results <- function(prison_row, savefiles = T, subdirectory = character(
   
   params <- list(
     namestr = "",
-    distance = "1", #API appears to accept fractional distances too
+    distance = radius,
     areatype = "",
-    unit = "9036", #specifies units as kilometers, "9035" is miles
+    unit = unit,
     f = "json", #format
     geometry = I(geo_query_string)#wrapping in I() to avoid character conversion eg ' ' into %20, this fixed a bug where API was returning error
     #note the hardcoded spatialReference in geo_query_string above, 4326 is standard for long/lat
@@ -191,16 +210,14 @@ collect_results <- function(prison_row, savefiles = T, subdirectory = character(
       
       response <- ejscreen_api_call(params, endpoint)
       
-      save_to_subdirectory <- length(subdirectory) != 0 #character() length == 0
-      
-      if (save_to_subdirectory) {
-        enter_directory(subdirectory)
+      if (nchar(savesubdirectory) > 1) { #did user specify a savesubdirectory?
+        enter_directory(savesubdirectory)
       }
       
       datequeried <- Sys.Date()
-      filename <- paste0(prison_row["FACILITYID"],'-ejscreen-data-queried-',datequeried) #save_text_file will append '.txt'
+      filename <- paste0(prison_row["FACILITYID"],'-ejscreen-data-queried-',datequeried) #save_text_file will append user config'd extension
       
-      save_text_file(response[['results']], filename = filename, extension = ".txt")
+      save_text_file(response[['results']], filename = filename, extension = extension, overwrite = overwrite)
       
       return(response) #list of 'results' char and 'successflag' logical
       
@@ -223,8 +240,8 @@ collect_results <- function(prison_row, savefiles = T, subdirectory = character(
       return(results)
     },
     finally = {
-      #are we in subdirectory?
-      if (basename(getwd()) == subdirectory) {
+      #are we in savesubdirectory?
+      if (basename(getwd()) == savesubdirectory) {
         #move back up to our original working directory
         setwd('..')
       }
@@ -232,16 +249,9 @@ collect_results <- function(prison_row, savefiles = T, subdirectory = character(
   )
 }
 
-
 ############################################################################ - read-in-prisons-and-collect-data
 #read in prisons data from config
 prisons <- read_csv(prisons_file)
-
-#set subdir from config if applicable
-subdirectory = character()
-if (savetodirectory) {
-  subdirectory <- savetodirectory
-}
 
 #set number of records to collect
 if (collect_all_records) {
@@ -251,29 +261,49 @@ if (collect_all_records) {
 }
 
 #collect results!
-run_query <- apply(prisons[numrecords,], MARGIN = 1, FUN = collect_results, savefiles = T, subdirectory = subdirectory, verbose = TRUE)
+run_query <- apply(prisons[numrecords,],
+                   MARGIN = 1,
+                   
+                   FUN = collect_results, #the function doin' the work
+                   
+                   radius = radius, #user config'd
+                   unit = unit,
+                   savefiles = savefiles,
+                   overwrite = overwrite,
+                   extension = extension,
+                   savesubdirectory = savesubdirectory, 
+                   verbose = verbose,
+                   endpoint = endpoint
+                   )
 
-#put them in a data.frame
+#put results in a data.frame
 run_query <- as.data.frame(do.call(rbind, run_query))
 
 #check for errors
-successvector <- do.call(run_query$successflag,paste)
-sum(!successvector) #error count
-1 - mean(successvector) #error rate
+message("Data collection complete.")
+Sys.sleep(2)
+message("Now checking for errors...")
+Sys.sleep(2)
+successvector <- as.logical(run_query$successflag) #need convert df list column of logicals into logical vector 
+message("There were ",sum(!successvector)," errors out of ",nrow(prisons[numrecords,])," records.") #error count
+Sys.sleep(3)
+message("The error rate was ",1 - mean(successvector),".") #error rate
+Sys.sleep(2)
+message("The 'run_query' has a success flag column indicating which records errored.") #error rate
 
 #save all results to one file in a JSON array, later fromJSON will output a nice dataframe vs having to read individual files and rbind etc.
 one_big_string <- do.call(paste, c(run_query['results'], collapse = ","))
 one_big_string <- paste0('[\n',one_big_string,'\n]')
 
 #save file  
-if (length(savetodirectory) != 0) {
-  enter_directory(savetodirectory)
+if (nchar(savesubdirectory) > 0) {
+  enter_directory(savesubdirectory)
 }
 datequeried <- Sys.Date()
 filename <- paste0('ALL-FACILITIES-ONE-FILE-ejscreen-data-queried-',datequeried)
-save_text_file(one_big_string, filename = filename, extension = ".txt", overwrite = FALSE) #overwrite useful for quick testing
-#are we in subdirectory?
-if (basename(getwd()) == savetodirectory) {
+save_text_file(one_big_string, filename = filename, extension = extension, overwrite = overwrite)
+#are we in savesubdirectory?
+if (basename(getwd()) == savesubdirectory) {
         #move back up to our original working directory
         setwd('..')
 }
