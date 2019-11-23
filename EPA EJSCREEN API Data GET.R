@@ -22,7 +22,8 @@
 #   radius (int): radius around coordinate point; API appears to accept fractional distances too
 #   unit (chr): "9036" specifies units as kilometers, "9035" for miles
 #   endpoint (chr): the endpoint URL
-#   
+#   maxtries (int): the number of retries to query the API if a request isn't successful.   
+#
 #   collect_all_records(logical): if TRUE, will collect all supplied records in prisons_file, if FALSE, will only collect first 3 (for testing)
 #
 #   savefiles(logical): TRUE #option to save text files, FALSE will query API and keep results in a data.frame without saving text files
@@ -31,21 +32,21 @@
 #   extension(chr): I'm overengineering here! note: full filename is hardcoded based on HIFLD facility ID and date e.g. "10003650-ejscreen-data-queried-2019-11-22.txt"
 # 
 #   verbose = TRUE
-#
 
 working_directory <- "C:/hack-ca-local/epa-facilities"
 prisons_file <- "hifld-prison_boundaries-geocoded-from-shapefiles-by-ucd-team.csv"
 
-radius <- "1" #radius around coordinate point; API appears to accept fractional distances too
-unit <- "9036" #specifies units as kilometers, "9035" for miles
+radius <- "1"
+unit <- "9036"
 endpoint <- "https://ejscreen.epa.gov/mapper/ejscreenRESTbroker.aspx"
+maxtries <- 3
 
 collect_all_records <- FALSE
 
-savefiles <-  TRUE #option to save text files, FALSE will query API and keep results in a data.frame without saving text files
-overwrite <- FALSE #if FALSE will not overwrite existing files (throws error), TRUE is useful for testing
+savefiles <-  TRUE
+overwrite <- FALSE
 savesubdirectory <- "testing"
-extension <- ".txt" #I'm overengineering here! note: full filename is hardcoded based on HIFLD facility ID and date e.g. "10003650-ejscreen-data-queried-2019-11-22.txt"
+extension <- ".txt"
 
 verbose <- TRUE
 
@@ -57,7 +58,7 @@ library(tidyverse)
 ############################################################################ - helper-functions
 
 ################################### - ejscreen-api-function
-ejscreen_api_call <- function(params, endpoint) {
+ejscreen_api_call <- function(params, endpoint, maxtries) {
   # """
   # Gets EJSCREEN results for a single point (long/lat coordinates) from https://ejscreen.epa.gov/mapper/ejscreenRESTbroker.aspx
   # 
@@ -65,7 +66,8 @@ ejscreen_api_call <- function(params, endpoint) {
   # Args:
   #   params (list): A list of API expected parameters, passed to httr::GET().
   #   endpoint (chr): the API endpoing URL.
-  # 
+  #   maxtries (int): the number of retries to query the API if a request isn't successful.
+  #
   # Returns:
   #   list(character(),logical(),character())
   #   [['results']] (chr) the API JSON
@@ -73,13 +75,12 @@ ejscreen_api_call <- function(params, endpoint) {
   #   [['error_message']] (chr) error message if not successful
   # """
   
-  maxtries <- 3
-  trynum <- 1
+  trynum <- 0
   
   response_status <- character()
   expected_content <- logical()
   
-  while (trynum < maxtries + 1) {
+  while (trynum < maxtries) {
     
     response <- GET(url = endpoint, query = params)
 
@@ -169,7 +170,7 @@ enter_directory <- function(dirname) {
 }
 
 ################################### - collectresults
-collect_results <- function(prison_row, radius, unit, savefiles, overwrite, extension, savesubdirectory, verbose, endpoint) {
+collect_results <- function(prison_row, radius, unit, savefiles, overwrite, extension, savesubdirectory, verbose, endpoint, maxtries) {
   # """
   # A function for apply(), relying on helper functions above, it structures call parameters, queries api,
   # and saves individual JSON text file, for a single set of coordinates.
@@ -208,7 +209,7 @@ collect_results <- function(prison_row, radius, unit, savefiles, overwrite, exte
   tryCatch( 
     expr = {
       
-      response <- ejscreen_api_call(params, endpoint)
+      response <- ejscreen_api_call(params = params, endpoint = endpoint, maxtries = maxtries)
       
       if (nchar(savesubdirectory) > 1) { #did user specify a savesubdirectory?
         enter_directory(savesubdirectory)
@@ -254,6 +255,7 @@ collect_results <- function(prison_row, radius, unit, savefiles, overwrite, exte
 prisons <- read_csv(prisons_file)
 
 #set number of records to collect
+numrecords <- int()
 if (collect_all_records) {
   numrecords <- 1:nrow(prisons)
 } else {
@@ -261,6 +263,9 @@ if (collect_all_records) {
 }
 
 #collect results!
+time_estimate = max(numrecords) * 2.1 / 60^2 #calculate seconds to hours
+
+message("Starting to collect ", max(numrecords)," records with an estimated time of ", time_estimate, " hours to complete.")
 run_query <- apply(prisons[numrecords,],
                    MARGIN = 1,
                    
@@ -273,7 +278,8 @@ run_query <- apply(prisons[numrecords,],
                    extension = extension,
                    savesubdirectory = savesubdirectory, 
                    verbose = verbose,
-                   endpoint = endpoint
+                   endpoint = endpoint,
+                   maxtries = maxtries
                    )
 
 #put results in a data.frame
