@@ -73,10 +73,12 @@ ejscreen_api_call <- function(params, endpoint, maxtries) {
   #   [['results']] (chr) the API JSON
   #   [['successflag']] (logical) TRUE if expected JSON was retrieved
   #   [['error_message']] (chr) error message if not successful
+  #   [['response']] (list response) response object from httr, useful for inspecting errors
   # """
   
   trynum <- 0
   
+  response <- NULL
   response_status <- character()
   expected_content <- logical()
   
@@ -84,7 +86,7 @@ ejscreen_api_call <- function(params, endpoint, maxtries) {
     
     response <- GET(url = endpoint, query = params)
 
-    response_status <- response$status_code
+    response_status <- response[['status_code']]
     expected_content <- grepl("RAW_E_PM25", x = content(response, as="text")) #check that an expected JSON key is present, we'll handle error catching outside of the api call function
     if (expected_content) {
       break
@@ -96,18 +98,20 @@ ejscreen_api_call <- function(params, endpoint, maxtries) {
     }
   }
   
-  results <- list(character(),logical(),character())
-  names(results) <- c("results","successflag","error_message")
+  results <- list(character(),logical(),character(),character())
+  names(results) <- c("results","successflag","error_message","response")
   
   if (expected_content) {
       results[['results']] <- content(response, as="text")
       results[['successflag']] <- TRUE
       results[['error_message']] <- NA
+      results[['response']] <- response #store the whole response, useful for errors/diagnostics
       return(results)
   } else {
       results[['results']] <- NA
       results[['successflag']] <- FALSE
       results[['error_message']] <- error_message
+      results[['response']] <- response
       return(results)
     }
 }
@@ -180,7 +184,7 @@ collect_results <- function(prison_row, radius, unit, savefiles, overwrite, exte
   #   see user config section at top for all others
   #
   # Returns:
-  #   list(character(),logical(),character()), the results; returned from ejscreen_api_call(), see that function for details
+  #   list(character(),logical(),character(),character()), the results; returned from ejscreen_api_call(), see that function for details
   # """  
   
   #I couldn't find any API good citizen guidelines/rate limits, we'll sleep for 1 second
@@ -220,7 +224,7 @@ collect_results <- function(prison_row, radius, unit, savefiles, overwrite, exte
       
       save_text_file(response[['results']], filename = filename, extension = extension, overwrite = overwrite)
       
-      return(response) #list of 'results' char and 'successflag' logical
+      return(response) #list of 'results' char, 'successflag' logical, 'error_message', 'request_url'
       
     },
     warning = function(w) {
@@ -232,11 +236,12 @@ collect_results <- function(prison_row, radius, unit, savefiles, overwrite, exte
       if (verbose) {
         message(e)
       }
-      results <- list(character(),logical(),character())
-      names(results) <- c("results","successflag","error_message")
+      results <- list(character(),logical(),character(),character())
+      names(results) <- c("results","successflag","error_message","response")
       results[['results']] <- NA
       results[['successflag']] <- FALSE
       results[['error_message']] <- e
+      results[['response']] <- NA
       
       return(results)
     },
