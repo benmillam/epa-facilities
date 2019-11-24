@@ -260,7 +260,7 @@ collect_results <- function(prison_row, radius, unit, savefiles, overwrite, exte
 prisons <- read_csv(prisons_file)
 
 #set number of records to collect
-numrecords <- int()
+numrecords <- integer()
 if (collect_all_records) {
   numrecords <- 1:nrow(prisons)
 } else {
@@ -303,7 +303,8 @@ Sys.sleep(2)
 message("The 'run_query' has a success flag column indicating which records errored.") #error rate
 
 #save all results to one file in a JSON array, later fromJSON will output a nice dataframe vs having to read individual files and rbind etc.
-one_big_string <- do.call(paste, c(run_query['results'], collapse = ","))
+save_index <- !is.na(run_query['results']) #we don't want to write the error records to our one_big_string
+one_big_string <- do.call(paste, c(run_query['results'][save_index,], collapse = ","))
 one_big_string <- paste0('[\n',one_big_string,'\n]')
 
 #save file  
