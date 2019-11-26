@@ -58,7 +58,7 @@ library(tidyverse)
 ############################################################################ - helper-functions
 
 ################################### - ejscreen-api-function
-ejscreen_api_call <- function(params, endpoint, maxtries) {
+ejscreen_api_call <- function(params, endpoint, maxtries, prison_hifld_info) {
   # """
   # Gets EJSCREEN results for a single point (long/lat coordinates) from https://ejscreen.epa.gov/mapper/ejscreenRESTbroker.aspx
   # 
@@ -67,6 +67,7 @@ ejscreen_api_call <- function(params, endpoint, maxtries) {
   #   params (list): A list of API expected parameters, passed to httr::GET().
   #   endpoint (chr): the API endpoing URL.
   #   maxtries (int): the number of retries to query the API if a request isn't successful.
+  #   prison_hifld_info (named chr vector): info from the hifld dataset we'll pass into JSON response, hacky, so we have something to join on when needed, e.g. FACILITYID
   #
   # Returns:
   #   list(character(),logical(),character())
@@ -98,11 +99,20 @@ ejscreen_api_call <- function(params, endpoint, maxtries) {
     }
   }
   
+  JSON_content <- content(response, as="text")
+  p_facid <- prison_hifld_info["FACILITYID"]
+  p_name <- prison_hifld_info["NAME"]
+  p_facid <- str_replace_all(p_facid,"\"","\\\\\"") #double quotes will break the JSON structure, let's escape them, more likely in name
+  p_name <- str_replace_all(p_name,"\"","\\\\\"") #double quotes will break the JSON structure, let's escape them
+  
+  JSON_hack_parts <- list(substr(JSON_content,1,1),"\"FACILITYID_HIFLD\":\"",p_facid,"\",","\"NAME_HIFLD\":\"",p_name,"\",",substr(JSON_content,2,nchar(JSON_content)))
+  JSON_content <- do.call(paste0,JSON_hack_parts)
+  
   results <- list(character(),logical(),character(),character())
   names(results) <- c("results","successflag","error_message","response")
   
   if (expected_content) {
-      results[['results']] <- content(response, as="text")
+      results[['results']] <- JSON_content
       results[['successflag']] <- TRUE
       results[['error_message']] <- NA
       results[['response']] <- response #store the whole response, useful for errors/diagnostics
@@ -210,10 +220,17 @@ collect_results <- function(prison_row, radius, unit, savefiles, overwrite, exte
     #note the hardcoded spatialReference in geo_query_string above, 4326 is standard for long/lat
   )
   
+  #hacky, prison id info to add to JSON results...
+  prison_id_hifld <- prison_row["FACILITYID"] #we can join on this when needed
+  prison_name_hifld <- prison_row["NAME"] #for convenience
+  
+  prison_hifld_info <- c(prison_id_hifld,prison_name_hifld)
+  names(prison_hifld_info) <- c("FACILITYID","NAME")
+  
   tryCatch( 
     expr = {
       
-      response <- ejscreen_api_call(params = params, endpoint = endpoint, maxtries = maxtries)
+      response <- ejscreen_api_call(params = params, endpoint = endpoint, maxtries = maxtries, prison_hifld_info = prison_hifld_info)
       
       if (nchar(savesubdirectory) > 1) { #did user specify a savesubdirectory?
         enter_directory(savesubdirectory)
