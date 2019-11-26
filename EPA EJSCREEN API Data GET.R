@@ -304,7 +304,7 @@ message("The 'run_query' has a success flag column indicating which records erro
 
 #save all results to one file in a JSON array, later fromJSON will output a nice dataframe vs having to read individual files and rbind etc.
 save_index <- !is.na(run_query['results']) #we don't want to write the error records to our one_big_string
-one_big_string <- do.call(paste, c(run_query['results'][save_index,], collapse = ","))
+one_big_string <- do.call(paste, c(list(run_query['results'][save_index,]), collapse = ",\n")) #paste and do.call, I don't understand, need list() a list to get desired single string...
 one_big_string <- paste0('[\n',one_big_string,'\n]')
 
 #save file  
