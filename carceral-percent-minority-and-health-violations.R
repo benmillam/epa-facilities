@@ -105,7 +105,7 @@ per_min_and_yes_health <- swda %>%
   ) %>% 
   mutate(
     per_minority  = as.numeric(per_minority), #convert from character
-    yes_health    = factor(yes_health, levels = c("0","1"), labels = c("Yes","No")), #convert from character
+    yes_health    = factor(yes_health, levels = c("0","1"), labels = c("No","Yes")), #convert from character
   )
 
 #check n and class imbalance (fairly balanced)
