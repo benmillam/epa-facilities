@@ -137,6 +137,8 @@ ggplot(
 #   use the linear model approach to replicate original analysis and describe
 #   a potential relationship
 
+#(logistic model on a single categorical variable doesn't add useful info over means comparisons,
+# but since this was initially suggested)
 summary(glm(yes_health ~ per_minority, data = per_min_and_yes_health, family = "binomial"))
 # Deviance Residuals: 
 #     Min       1Q   Median       3Q      Max  
