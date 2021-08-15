@@ -31,18 +31,33 @@ swda <- read_csv('SDWA_Violations_Site_Visits_lag_collapse.csv', col_types = col
 #unit of observation: year x SWDA ID for carceral facilities
 #unit of analysis:    carceral facility by FRS ID
     # --Q1->  Unsure if group's analysis accounted for this 'mismatch' in UoO vs UoA, e.g. 
-    #         there are many FRS IDs with > 1 SWDA ID, view here:
-View (
-  swda %>% 
-    group_by (
-      REGISTRY_ID,
-      FAC_ID
-    ) %>% 
-    tally() %>% 
-    arrange(
-      REGISTRY_ID
-    )
-)
+    #         there are a few FRS IDs with > 1 SWDA ID:
+swda %>% 
+  group_by (
+    REGISTRY_ID,
+    FAC_ID
+  ) %>% 
+  tally() %>% #like summarize, tally() will strip a grouping level, so we're rolling up
+  tally() %>% 
+  arrange(
+    desc(n)
+  )
+
+# # A tibble: 361 x 2
+#    REGISTRY_ID      n
+#    <chr>        <int>
+#  1 110005364658     2
+#  2 110021747822     2
+#  3 110060258858     2
+#  4 110068077191     2
+#  5 110000527190     1
+#  6 110000711285     1
+#  7 110000736099     1
+#  8 110000887489     1
+#  9 110000943409     1
+# 10 110000946148     1
+# # ... with 351 more rows
+
 
 #again, initial vars of interest: FAC_PERCENT_MINORITY, HEALTH_yes
 
@@ -83,7 +98,8 @@ swda %>%
   ) #0; good, expected
 
 
-    # --Q3->  which variables were included in the group's logistic model? 
+    # --Q3->  which variables were included in the group's logistic model?
+    #         (was STATE_NUM included as numeric? if categorical, cell sizes likely very small)
     #         does the finding hold when we start with only % min and HEALTH_yes?
 
 #convert unit of observation (row) to FRS carceral facility
@@ -137,8 +153,7 @@ ggplot(
 #   use the linear model approach to replicate original analysis and describe
 #   a potential relationship
 
-#(logistic model on a single categorical variable doesn't add useful info over means comparisons,
-# but since this was initially suggested)
+#logistic model on a single categorical variable
 summary(glm(yes_health ~ per_minority, data = per_min_and_yes_health, family = "binomial"))
 # Deviance Residuals: 
 #     Min       1Q   Median       3Q      Max  
@@ -159,4 +174,43 @@ summary(glm(yes_health ~ per_minority, data = per_min_and_yes_health, family = "
 # 
 # Number of Fisher Scoring iterations: 4
 
+#doesn't look promising, 
+#   I'll be asked about practical interpretation, so let's check practical significance 
+#   against 80% of our data range:
+b0 <- -0.760717 
+b1 <-  0.008547
 
+#calculate odds and probabilities
+odds_and_prob <- function(per_minority) {
+  
+  odds          <- exp(b0+b1*per_minority)
+  prob          <- odds/(1+odds) #equivalent for 1/1+exp(-logit)
+  result        <- c(odds,prob)
+  names(result) <- c("odds","probability")
+  
+  return(result)
+  
+}
+
+per_minority  <- per_min_and_yes_health$per_minority
+yes_health    <- per_min_and_yes_health$yes_health 
+
+boxplot(per_minority)
+quantile(per_minority, probs = seq(0,1,0.1))
+#  0%  10%  20%  30%  40%  50%  60%  70%  80%  90% 100% 
+#  0.0  7.6 12.2 17.0 23.4 30.0 37.0 47.2 55.0 66.4 92.0 
+
+qqnorm(per_minority, pch = 1, frame = FALSE)
+qqline(per_minority, col = "steelblue", lwd = 2)
+
+#let's check practical significance against 80% of our data range
+odds_and_prob(.076)
+#      odds probability 
+# 0.4676349   0.3186316 
+ 
+
+odds_and_prob(.664)
+#      odds probability 
+# 0.4699910   0.3197237 
+
+#finding not supported, escalate to group
